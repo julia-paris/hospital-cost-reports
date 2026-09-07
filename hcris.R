@@ -185,6 +185,22 @@ rm(items_nmrc,items_alph)
 
 print("Processing variables")
 
+# some variables exist in only one report format (e.g. totinitchcare,
+# ppaychcare and nonmcbaddebt are 2010-format only; chguccare is 1996-format
+# only). if the processing years don't span both formats, those columns never
+# come out of the pivot and code below that names them directly fails. add any
+# absent lookup variables back as missing, before the dollar_flow zero-fill, so
+# a single-format run behaves exactly like the same years inside a run that
+# spans both formats.
+absent_recs <- setdiff(unique(lookup_table$rec),names(hcris_rpt))
+if (length(absent_recs)) {
+  print(paste("Adding absent variables as missing:",paste(absent_recs,collapse=", ")))
+  for (v in absent_recs) {
+    hcris_rpt[[v]] <- if (v %in% vars$alpha) NA_character_ else NA_real_
+  }
+}
+
+
 # zero out $ variables if they were blank and make indicators for doing so
 vars_zero_out <- intersect(vars$dollar_flow,names(hcris_rpt))
 hcris_rpt <- hcris_rpt |>
