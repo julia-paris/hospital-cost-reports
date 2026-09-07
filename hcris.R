@@ -2,6 +2,12 @@
 # process the CMS cost reports, producing one report-level file and another
 # synthetic hospital-calendar year file
 
+# run from the repo root. only change directory if that hardcoded path exists
+# (so the script also runs on other machines / from Rscript in the repo dir)
+if (dir.exists("/Users/juliaparis/GitHub/hospital-cost-reports")) {
+  setwd("/Users/juliaparis/GitHub/hospital-cost-reports")
+}
+
 library(tidyverse)
 library(arrow)
 library(duckdb)
@@ -10,8 +16,8 @@ library(labelled)
 library(haven)
 
 # use cost reports from these years' data files
-START_YEAR <- 1996
-END_YEAR <- 2024
+START_YEAR <- 2005
+END_YEAR <- 2007
 
 # with files from those years, we often (~50% of hospitals) don't observe
 # reports covering the full calendar STARTYEAR. and often don't observe (~20%
@@ -80,10 +86,12 @@ items_wide <- function(ftype) {
 
   # bring in the data (values)
   items_pq <- open_dataset(paste(STORE,"/",ftype,sep=""))
+  print(items_pq)
   
   # fix up the file for merging
   items_long <- items_pq |>
     filter(year>=START_YEAR & year<=END_YEAR) |> # limit to processing years
+    collect() |> # collect after the year filter, so we don't pull every year into memory
     # some column numbers have characters, which won't convert to int. set to NA
     mutate(clmn_num = if_else(grepl("[A-Z]",clmn_num),NA,clmn_num)) |>
     mutate(across(c("clmn_num","line_num"),as.integer))
