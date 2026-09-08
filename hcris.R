@@ -17,7 +17,7 @@ library(haven)
 
 # use cost reports from these years' data files
 START_YEAR <- 2005
-END_YEAR <- 2007
+END_YEAR <- 2018
 
 # with files from those years, we often (~50% of hospitals) don't observe
 # reports covering the full calendar STARTYEAR. and often don't observe (~20%
@@ -70,6 +70,9 @@ lookup_table <- lookup_table |>
 lookup_table <- lookup_table |>
   filter(enabled)
 
+# worksheets referenced by the lookup table, used to prefilter the item files
+lookup_wksht_cds <- unique(lookup_table$wksht_cd)
+
 # variable types and labels
 type_label <- read_excel("lookup.xlsx",sheet="Type and Label")
 type_label <- type_label |> mutate_at("type",as.factor)
@@ -91,7 +94,10 @@ items_wide <- function(ftype) {
   # fix up the file for merging
   items_long <- items_pq |>
     filter(year>=START_YEAR & year<=END_YEAR) |> # limit to processing years
-    collect() |> # collect after the year filter, so we don't pull every year into memory
+    # only worksheets the lookup table uses. the inner_join below drops
+    # everything else anyway, and this is ~12% of the rows in the nmrc file.
+    filter(wksht_cd %in% lookup_wksht_cds) |>
+    collect() |> # collect after the filters, so we don't pull every year into memory
     # some column numbers have characters, which won't convert to int. set to NA
     mutate(clmn_num = if_else(grepl("[A-Z]",clmn_num),NA,clmn_num)) |>
     mutate(across(c("clmn_num","line_num"),as.integer))
