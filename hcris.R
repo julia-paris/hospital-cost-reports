@@ -38,8 +38,20 @@ END_AYEAR_DATE <- function (y) { make_date(y,12,31) }
 # where are the parquets?
 STORE <- "./store"
 
+# where to write the processed files
+OUTPUT <- "./output"
+
+# optionally publish the hospital-year file to a second location, so it doesn't
+# have to be copied by hand after every build. set to NA to skip.
+# NOTE: this is a subfolder of the supplemental data directory, deliberately.
+# The files sitting directly in hospital-cost-report/ are Adam Sacarny's own
+# published build (all six of his outputs, dated 2025-06-27, ayears 1997-2023),
+# downloaded rather than generated here. Leave those alone; this build goes
+# alongside them, not over them.
+PUBLISH_HOSPYEAR_TO <- "/Users/juliaparis/Library/CloudStorage/Dropbox/hospital_ceos/_data/supplemental/hospital-cost-report/custom_build"
+
 # make the output folder if it doesn't exist
-dir.create("./output", showWarnings = FALSE)
+dir.create(OUTPUT, showWarnings = FALSE)
 
 # import the lookup table
 print("Importing the lookup table")
@@ -290,12 +302,12 @@ names(labels.was.na) <- paste(names(labels.was.na),".was.na",sep="")
 var_label(hcris_rpt) <- labels.was.na
 
 print("Saving report level file")
-save(hcris_rpt,file = "output/hcris_rpt.Rdata")
-write_csv(hcris_rpt,"output/hcris_rpt.csv")
+save(hcris_rpt,file = file.path(OUTPUT,"hcris_rpt.Rdata"))
+write_csv(hcris_rpt,file.path(OUTPUT,"hcris_rpt.csv"))
 # to save as stata, remove periods from colnames
 hcris_rpt |>
   rename_with(~ gsub("\\.","_",.x)) |>
-  write_dta("output/hcris_rpt.dta")
+  write_dta(file.path(OUTPUT,"hcris_rpt.dta"))
 
 # now construct the hospital-year synthetic file
 
@@ -425,9 +437,35 @@ labels.was.na <- sapply(
 var_label(hcris_ayear) <- labels.was.na
 
 print("Saving hospital-year level file")
-save(hcris_ayear,file = "output/hcris_hospyear.Rdata")
-write_csv(hcris_ayear,"output/hcris_hospyear.csv")
+save(hcris_ayear,file = file.path(OUTPUT,"hcris_hospyear.Rdata"))
+write_csv(hcris_ayear,file.path(OUTPUT,"hcris_hospyear.csv"))
 # to save as stata, remove periods from colnames
 hcris_ayear |>
   rename_with(~ gsub("\\.","_",.x)) |>
-  write_dta("output/hcris_hospyear.dta")
+  write_dta(file.path(OUTPUT,"hcris_hospyear.dta"))
+
+# publish the hospital-year file where the analysis code expects to find it
+if (!is.na(PUBLISH_HOSPYEAR_TO)) {
+  if (dir.exists(dirname(PUBLISH_HOSPYEAR_TO))) {
+    dir.create(PUBLISH_HOSPYEAR_TO, showWarnings = FALSE)
+    # record what this build covers, so the file is self-describing
+    writeLines(
+      c(
+        paste("built:",format(Sys.time(),"%Y-%m-%d %H:%M:%S")),
+        paste("source data years:",START_YEAR,"-",END_YEAR),
+        paste("synthetic years:",START_AYEAR,"-",END_AYEAR),
+        paste("hospital-years:",nrow(hcris_ayear)),
+        "built from julia-paris/hospital-cost-reports, which adds ipcharge and",
+        "opcharge for the 1996 report format. not Adam Sacarny's published build."
+      ),
+      file.path(PUBLISH_HOSPYEAR_TO,"BUILD_INFO.txt")
+    )
+    for (f in c("hcris_hospyear.dta","hcris_hospyear.csv")) {
+      target <- file.path(PUBLISH_HOSPYEAR_TO,f)
+      file.copy(file.path(OUTPUT,f),target,overwrite=TRUE)
+      print(paste("Published",target))
+    }
+  } else {
+    warning(paste("parent of PUBLISH_HOSPYEAR_TO does not exist, not publishing:",PUBLISH_HOSPYEAR_TO))
+  }
+}
