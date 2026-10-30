@@ -225,6 +225,20 @@ hcris_rpt <- hcris_rpt |>
   mutate(across(all_of(vars_zero_out),is.na,.names="{.col}.was.na")) |>
   mutate(across(all_of(vars_zero_out),~ coalesce(.x,0)))
 
+# ag_cost_net (Worksheet A col 7) cannot be built from 1996-format reports: the
+# public 1996 file carries only Wksht A cols 1, 2 and 6 -- no col 4
+# (reclassifications) and no Wksht A-6 -- so the lookup table has no fmt 96 row
+# for it. The zero-fill above would hand every 1996 report a spurious
+# ag_cost_net of 0, so put it back to missing. The hospital-year collapse sums
+# without na.rm, so any hospital-year containing a 1996 report inherits the
+# missing value; that is the "missing whenever nfmt96 > 0" rule, enforced here
+# once rather than patched onto the year file afterwards.
+# ag_salaries is NOT affected: it has rows for both formats (col 1 on each).
+if ("ag_cost_net" %in% names(hcris_rpt)) {
+  hcris_rpt <- hcris_rpt |>
+    mutate(ag_cost_net = if_else(fmt == 96, NA_real_, ag_cost_net))
+}
+
 # make rpt_stus_cd a factor
 hcris_rpt <- hcris_rpt |>
   mutate(rpt_stus_cd = as.factor(rpt_stus_cd))
@@ -246,11 +260,31 @@ hcris_rpt <- hcris_rpt |>
       fmt==10 ~ totinitchcare-ppaychcare+nonmcbaddebt,
       .default=NA
     ),
-    uccare_cost_harmonized = ccr*uccare_chg_harmonized
+    uccare_cost_harmonized = ccr*uccare_chg_harmonized,
+    # A&G total admin cost, harmonized across formats. Wksht A builds col 7 as
+    # col 1 + col 2 + col 4 + col 6, but the public 1996 file carries only cols
+    # 1, 2 and 6, so col 7 (ag_cost_net) exists for 2010-format reports only.
+    # This proxy drops the col 4 (reclassification) term and so is available for
+    # both formats, at the cost of a small, stable bias. Measured hospital-year
+    # by hospital-year against true col 7 where both exist, the proxy level runs
+    # 2.4% high at the median and the in-house share (col 1 / col 7) comes out
+    # 0.65pp low; that per-row offset sat between -0.72pp and -0.55pp in every
+    # year from 2011 to 2017. (Comparing the two pooled distributions instead
+    # gives a larger gap, ~2.4pp, because they are skewed differently -- the
+    # per-row figure is the one that matters for a within-hospital design.)
+    # Use the proxy when you need a series that spans the format break; use
+    # ag_cost_net when the window is 2011+. Never splice the two -- the level
+    # offset would appear as a jump at 2011.
+    # The zero-fill above makes blank cols 2 and 6 read as 0, which is correct
+    # here: among the 433 2010-format reports with a blank col 6, col 1 + col 2
+    # reproduces col 7 exactly. So only a blank col 1 invalidates the proxy, and
+    # ag_salaries.was.na already marks that case.
+    ag_cost_proxy = ag_salaries + ag_other + ag_adjust
   )
 vars$dollar_flow <- vars$dollar_flow |>
   c("income","totcost","prog_chg",
-    "uccare_chg_harmonized","uccare_cost_harmonized"
+    "uccare_chg_harmonized","uccare_cost_harmonized",
+    "ag_cost_proxy"
   )
 
 # sort the data
@@ -284,6 +318,7 @@ var_label(hcris_rpt) <- list(
   prog_chg="medicare inpatient program charges (routine service + ancillary)",
   uccare_chg_harmonized="uncompensated care charges (harmonized across formats)",
   uccare_cost_harmonized="uncompensated care costs (harmonized across formats)",
+  ag_cost_proxy="administrative & general total cost, proxy for Wksht A col 7 (col 1 + col 2 + col 6; omits col 4 reclassifications; both formats)",
   margin="total all-payer margin i.e. profit margin (income-totcost)/income"
 )
 var_label(hcris_rpt) <- c(
